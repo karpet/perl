@@ -145,14 +145,7 @@
         /* No asserts are done for some of these, in case called on a   */  \
         /* Unicode version in which they map to nothing */                  \
 	LOAD_UTF8_CHARCLASS(X_regular_begin, HYPHEN_UTF8);                          \
-	LOAD_UTF8_CHARCLASS_NO_CHECK(X_special_begin);                      \
 	LOAD_UTF8_CHARCLASS(X_extend, COMBINING_GRAVE_ACCENT_UTF8);         \
-	LOAD_UTF8_CHARCLASS_NO_CHECK(X_prepend);/* empty in most releases*/ \
-	LOAD_UTF8_CHARCLASS(X_L, HANGUL_CHOSEONG_KIYEOK_UTF8);	            \
-	LOAD_UTF8_CHARCLASS(X_LV_LVT_V, HANGUL_JUNGSEONG_FILLER_UTF8);      \
-	LOAD_UTF8_CHARCLASS_NO_CHECK(X_RI);    /* empty in many releases */ \
-	LOAD_UTF8_CHARCLASS(X_T, HANGUL_JONGSEONG_KIYEOK_UTF8);             \
-	LOAD_UTF8_CHARCLASS(X_V, HANGUL_JUNGSEONG_FILLER_UTF8)
 
 #define PLACEHOLDER	/* Something for the preprocessor to grab onto */
 
@@ -3961,6 +3954,8 @@ S_regmatch(pTHX_ regmatch_info *reginfo, regnode *prog)
 		    locinput += 2;
 		}
 		else {
+                    STRLEN len;
+
 		    /* In case have to backtrack to beginning, then match '.' */
 		    char *starting = locinput;
 
@@ -3969,16 +3964,12 @@ S_regmatch(pTHX_ regmatch_info *reginfo, regnode *prog)
 
 		    LOAD_UTF8_CHARCLASS_GCB();
 
-                    /* Match (prepend)*, but don't bother trying if empty (as
-                     * being set to _undef indicates) */
-                    if (PL_utf8_X_prepend != &PL_sv_undef) {
-                        while (locinput < PL_regeol
-                               && swash_fetch(PL_utf8_X_prepend,
-                                              (U8*)locinput, utf8_target))
-                        {
-                            previous_prepend = locinput;
-                            locinput += UTF8SKIP(locinput);
-                        }
+                    /* Match (prepend)*   */
+                    while (locinput < PL_regeol
+                           && (len = is_GCB_Prepend_utf8(locinput)))
+                    {
+                        previous_prepend = locinput;
+                        locinput += len;
                     }
 
 		    /* As noted above, if we matched a prepend character, but
@@ -3988,8 +3979,7 @@ S_regmatch(pTHX_ regmatch_info *reginfo, regnode *prog)
 			&& (locinput >=  PL_regeol
 			    || (! swash_fetch(PL_utf8_X_regular_begin,
 					     (U8*)locinput, utf8_target)
-			         && ! swash_fetch(PL_utf8_X_special_begin,
-					     (U8*)locinput, utf8_target)))
+			         && ! is_GCB_SPECIAL_BEGIN_utf8(locinput)))
                         )
 		    {
 			locinput = previous_prepend;
@@ -4004,9 +3994,7 @@ S_regmatch(pTHX_ regmatch_info *reginfo, regnode *prog)
                                     (U8*)locinput, utf8_target)) {
                         locinput += UTF8SKIP(locinput);
                     }
-                    else if (! swash_fetch(PL_utf8_X_special_begin,
-					(U8*)locinput, utf8_target))
-			{
+                    else if (! is_GCB_SPECIAL_BEGIN_utf8(locinput)) {
 
 			/* Here did not match the required 'Begin' in the
 			 * second term.  So just match the very first
@@ -4018,26 +4006,20 @@ S_regmatch(pTHX_ regmatch_info *reginfo, regnode *prog)
                         /* Here is a special begin.  It can be composed of
                          * several individual characters.  One possibility is
                          * RI+ */
-                        if (swash_fetch(PL_utf8_X_RI,
-                                        (U8*)locinput, utf8_target))
-                        {
-                            locinput += UTF8SKIP(locinput);
+                        if ((len = is_GCB_RI_utf8(locinput))) {
+                            locinput += len;
                             while (locinput < PL_regeol
-                                    && swash_fetch(PL_utf8_X_RI,
-                                                    (U8*)locinput, utf8_target))
+                                   && (len = is_GCB_RI_utf8(locinput)))
                             {
-                                locinput += UTF8SKIP(locinput);
+                                locinput += len;
                             }
-                        } else /* Another possibility is T+ */
-                               if (swash_fetch(PL_utf8_X_T,
-                                               (U8*)locinput, utf8_target))
-                        {
-                            locinput += UTF8SKIP(locinput);
+                        } else if ((len = is_GCB_T_utf8(locinput))) {
+                            /* Another possibility is T+ */
+                            locinput += len;
                             while (locinput < PL_regeol
-                                    && swash_fetch(PL_utf8_X_T,
-                                                    (U8*)locinput, utf8_target))
+                                && (len = is_GCB_T_utf8(locinput)))
                             {
-                                locinput += UTF8SKIP(locinput);
+                                locinput += len;
                             }
                         } else {
 
@@ -4048,10 +4030,9 @@ S_regmatch(pTHX_ regmatch_info *reginfo, regnode *prog)
 
                             /* Match L*           */
                             while (locinput < PL_regeol
-                                    && swash_fetch(PL_utf8_X_L,
-                                                    (U8*)locinput, utf8_target))
+                                   && (len = is_GCB_L_utf8(locinput)))
                             {
-                                locinput += UTF8SKIP(locinput);
+                                locinput += len;
                             }
 
                             /* Here, have exhausted L*.  If the next character
@@ -4061,8 +4042,7 @@ S_regmatch(pTHX_ regmatch_info *reginfo, regnode *prog)
                              * Are done. */
 
                             if (locinput < PL_regeol
-                                && swash_fetch(PL_utf8_X_LV_LVT_V,
-                                                (U8*)locinput, utf8_target))
+                                && is_GCB_LV_LVT_V_utf8(locinput))
                             {
 
                                 /* Otherwise keep going.  Must be LV, LVT or V.
@@ -4075,22 +4055,18 @@ S_regmatch(pTHX_ regmatch_info *reginfo, regnode *prog)
                                      * V*     */
                                     locinput += UTF8SKIP(locinput);
                                     while (locinput < PL_regeol
-                                            && swash_fetch(PL_utf8_X_V,
-                                                           (U8*)locinput,
-                                                           utf8_target))
+                                           && (len = is_GCB_V_utf8(locinput)))
                                     {
-                                        locinput += UTF8SKIP(locinput);
+                                        locinput += len;
                                     }
                                 }
 
                                 /* And any of LV, LVT, or V can be followed
-                                    * by T*            */
+                                 * by T*            */
                                 while (locinput < PL_regeol
-                                        && swash_fetch(PL_utf8_X_T,
-                                                        (U8*)locinput,
-                                                        utf8_target))
+                                       && (len = is_GCB_T_utf8(locinput)))
                                 {
-                                    locinput += UTF8SKIP(locinput);
+                                    locinput += len;
                                 }
                             }
                         }
